@@ -1,0 +1,11 @@
+{
+  "problem_id": "{ProblemID}",
+  "pid": "{PID}",
+  "title": "{ProblemTitle}",
+  "state": "{State}",
+  "severity": "{ProblemSeverity}",
+  "impact": "{ProblemImpact}",
+  "impacted_entity": "{ImpactedEntity}",
+  "url": "{ProblemURL}",
+  "tags": "{Tags}"
+}

@@ -1,0 +1,77 @@
+---
+# Installs the Dynatrace OneAgent on the demo workload.
+#
+# In AAP: job template "Demo :: Install OneAgent" with the "Dynatrace API"
+# credential attached (it injects DT_TENANT_URL and DT_PAAS_TOKEN).
+#
+# From a laptop:
+#   ansible-playbook playbooks/install_oneagent.yml \
+#     -e dt_tenant_url=https://abc12345.live.dynatrace.com \
+#     -e dt_paas_token=dt0c01....
+#
+# Get the PaaS token from Dynatrace: Deploy Dynatrace > Install OneAgent — the
+# UI hands you a one-line curl with the token already in it. This playbook just
+# makes that repeatable and idempotent.
+- name: Deploy Dynatrace OneAgent
+  hosts: demo_app
+  become: true
+
+  vars:
+    dt_tenant_url: "{{ lookup('env', 'DT_TENANT_URL') }}"
+    dt_paas_token: "{{ lookup('env', 'DT_PAAS_TOKEN') }}"
+    dt_host_group: "demo-selfhealing"
+    oneagent_installer: /tmp/Dynatrace-OneAgent.sh
+
+  pre_tasks:
+    - name: Require the tenant URL and PaaS token
+      ansible.builtin.assert:
+        that:
+          - dt_tenant_url | length > 0
+          - dt_paas_token | length > 0
+        fail_msg: "Attach the Dynatrace API credential, or pass -e dt_tenant_url=... -e dt_paas_token=..."
+
+  tasks:
+    - name: Check whether OneAgent is already installed
+      ansible.builtin.stat:
+        path: /opt/dynatrace/oneagent
+      register: oneagent_dir
+
+    - name: Install OneAgent
+      when: not oneagent_dir.stat.exists
+      block:
+        - name: Download the OneAgent installer
+          ansible.builtin.get_url:
+            url: "{{ dt_tenant_url }}/api/v1/deployment/installer/agent/unix/default/latest?arch=x86"
+            headers:
+              Authorization: "Api-Token {{ dt_paas_token }}"
+            dest: "{{ oneagent_installer }}"
+            mode: "0700"
+
+        - name: Run the installer
+          ansible.builtin.command:
+            cmd: >-
+              /bin/sh {{ oneagent_installer }}
+              --set-monitoring-mode=fullstack
+              --set-app-log-content-access=true
+              --set-host-group={{ dt_host_group }}
+              --set-infra-only=false
+          args:
+            creates: /opt/dynatrace/oneagent
+
+        - name: Remove the installer (it contains a token)
+          ansible.builtin.file:
+            path: "{{ oneagent_installer }}"
+            state: absent
+
+    - name: Ensure the OneAgent service is running
+      ansible.builtin.systemd:
+        name: oneagent
+        state: started
+        enabled: true
+
+    - name: Remind you about the next step
+      ansible.builtin.debug:
+        msg: >-
+          OneAgent installed with host group '{{ dt_host_group }}'. Give Dynatrace
+          3-5 minutes to discover the host and the demo-api process before you
+          configure the synthetic monitor and the problem notification.

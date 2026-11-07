@@ -1,0 +1,64 @@
+---
+# The "chaos" step. Run it live, on stage, as the AAP job template
+# "Chaos :: Inject fault" (survey: scenario = service | disk), or from a laptop:
+#
+#   ansible-playbook playbooks/break_service.yml
+#   ansible-playbook playbooks/break_service.yml -e scenario=disk
+#
+# Keep it a playbook rather than a raw `systemctl stop` — it reads as deliberate
+# fault injection rather than sabotage, and the output gives you something to
+# narrate while Dynatrace catches up.
+- name: Inject a fault into the demo workload
+  hosts: demo_app
+  become: true
+
+  vars:
+    scenario: service   # service | disk
+
+  tasks:
+    - name: Announce
+      ansible.builtin.debug:
+        msg: >-
+          Injecting '{{ scenario }}' fault on {{ inventory_hostname }}
+          at {{ lookup('pipe', 'date -u +%H:%M:%SZ') }} UTC
+
+    - name: Scenario — kill the application process
+      when: scenario == 'service'
+      block:
+        - name: Stop demo-api
+          ansible.builtin.systemd:
+            name: demo-api
+            state: stopped
+
+        - name: Confirm the endpoint is now failing
+          ansible.builtin.uri:
+            url: http://127.0.0.1/health
+            status_code: [502, 503, 504]
+          register: broken
+          retries: 5
+          delay: 2
+          until: broken.status in [502, 503, 504]
+
+        - name: Report
+          ansible.builtin.debug:
+            msg: "demo-api is DOWN. /health now returns {{ broken.status }}. Dynatrace detection typically lands in 1-3 minutes."
+
+    - name: Scenario — fill the disk
+      when: scenario == 'disk'
+      block:
+        - name: Find free space on /
+          ansible.builtin.shell: df --output=avail -m / | tail -1
+          register: avail
+          changed_when: false
+
+        - name: Write a large junk log file leaving ~300 MB free
+          ansible.builtin.command:
+            cmd: >-
+              fallocate -l {{ [ (avail.stdout | trim | int) - 300, 1 ] | max }}M
+              /var/log/demo-api-runaway.log
+          args:
+            creates: /var/log/demo-api-runaway.log
+
+        - name: Report
+          ansible.builtin.debug:
+            msg: "Disk on / is now nearly full. Dynatrace will raise a disk space event."

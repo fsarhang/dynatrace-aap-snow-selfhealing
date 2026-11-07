@@ -1,0 +1,14 @@
+{
+  "_comment": "Dynatrace Workflows > HTTP request action. Method POST to the EDA event stream URL. Headers: X-Dynatrace-Token: <token>, Content-Type: application/json. The body must produce the same keys as problem-notification-payload.json so the rulebook works unchanged.",
+  "_verify_first": "Run the workflow once, open the execution, expand the trigger, and read the real event() keys. Replace the expressions below with what you actually see.",
+
+  "problem_id": "{{ event()['event.id'] }}",
+  "pid": "{{ event()['display_id'] }}",
+  "title": "{{ event()['event.name'] }}",
+  "state": "{{ 'OPEN' if event()['event.status'] == 'ACTIVE' else 'RESOLVED' }}",
+  "severity": "{{ event()['event.category'] }}",
+  "impact": "{{ event()['dt.davis.impact_level'] }}",
+  "impacted_entity": "{{ event()['affected_entity_ids'] | join(',') }}",
+  "url": "{{ environment().url }}/ui/apps/dynatrace.davis.problems/problem/{{ event()['event.id'] }}",
+  "tags": "{{ event()['entity_tags'] | join(',') }}"
+}

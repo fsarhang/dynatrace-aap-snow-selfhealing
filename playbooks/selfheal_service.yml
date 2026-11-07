@@ -1,0 +1,273 @@
+---
+# ============================================================================
+# The centrepiece. Event-Driven Ansible launches this when Dynatrace reports a
+# problem, and it is the playbook you put on screen — so it is written to be read.
+#
+# Job template "Self-Heal :: Service Recovery" (Prompt on launch: Variables)
+# Credentials: demo-app-ssh, ServiceNow PDI, Dynatrace API
+#
+# Ticket lifecycle in ServiceNow:
+#   1. Incident created, In Progress       (before anything is touched)
+#   2. Work note: diagnostics              (evidence captured before the fix)
+#   3. Work note: implementation           (what was changed)
+#   4. Work note: verification             (proof the service really recovered)
+#   5. Resolved with close notes  ->  6. Closed
+#   If verification fails: escalated to the Service Desk, never closed.
+# ============================================================================
+- name: Closed-loop remediation for a Dynatrace problem
+  hosts: localhost
+  gather_facts: false
+  # No `connection: local` here — delegated tasks would inherit it and run on
+  # the execution pod instead of the target host.
+
+  vars:
+    # ---- Supplied by the EDA rulebook (defaults allow a manual run) ----
+    dt_problem_id: "UNKNOWN"
+    dt_pid: "MANUAL"
+    dt_problem_title: "Manual invocation"
+    dt_problem_severity: "AVAILABILITY"
+    dt_problem_impact: "SERVICE"
+    dt_problem_state: "OPEN"
+    dt_impacted_entity: "app01"
+    dt_problem_url: ""
+
+    # ---- What we are fixing ----
+    target_host: app01
+    target_service: demo-api
+    health_url: http://127.0.0.1/health
+
+    # ---- Guardrails ----
+    allowed_services: [demo-api, nginx]
+    verify_retries: 10
+    verify_delay: 5
+
+    # ---- Links for the audit trail (set aap_url as a job template variable) ----
+    aap_url: ""
+    aap_job_url: "{{ aap_url ~ '/execution/jobs/playbook/' ~ (awx_job_id | default('local')) ~ '/output' }}"
+
+    # ---- Injected by AAP custom credentials ----
+    snow_instance:
+      host: "{{ lookup('env', 'SN_HOST') }}"
+      username: "{{ lookup('env', 'SN_USERNAME') }}"
+      password: "{{ lookup('env', 'SN_PASSWORD') }}"
+    dt_tenant_url: "{{ lookup('env', 'DT_TENANT_URL') }}"
+    dt_api_token: "{{ lookup('env', 'DT_API_TOKEN') }}"
+    dt_can_comment: "{{ dt_tenant_url | length > 0 and dt_problem_id != 'UNKNOWN' }}"
+
+  tasks:
+
+    # ------------------------------------------------------------- 0. guards
+    - name: Ignore resolution notifications
+      ansible.builtin.meta: end_play
+      when: dt_problem_state | upper == 'RESOLVED'
+
+    - name: Refuse to act on a service outside the allow-list
+      ansible.builtin.assert:
+        that: target_service in allowed_services
+        fail_msg: "'{{ target_service }}' is not an approved remediation target {{ allowed_services }}."
+        success_msg: "{{ target_service }} is an approved remediation target."
+
+    # ------------------------------------------------- 1. open the incident
+    - name: Open a ServiceNow incident
+      servicenow.itsm.incident:
+        instance: "{{ snow_instance }}"
+        state: in_progress
+        caller: "{{ snow_instance.username }}"
+        short_description: "[Dynatrace] {{ dt_problem_title }} on {{ dt_impacted_entity }}"
+        description: |
+          Automatically raised from a Dynatrace problem and handled by
+          Ansible Automation Platform (Event-Driven Ansible).
+
+          Dynatrace problem : {{ dt_pid }} ({{ dt_problem_id }})
+          Severity / impact : {{ dt_problem_severity }} / {{ dt_problem_impact }}
+          Impacted entity   : {{ dt_impacted_entity }}
+          Dynatrace link    : {{ dt_problem_url }}
+          AAP job           : {{ aap_job_url }}
+
+          Automated remediation is in progress. This incident will be updated with
+          diagnostics, the change made and its verification, then closed
+          automatically if the service recovers.
+        impact: medium
+        urgency: high
+        other:
+          category: software
+      register: inc
+
+    - name: Remember the incident number
+      ansible.builtin.set_fact:
+        inc_number: "{{ inc.record.number }}"
+
+    - name: Comment the incident number onto the Dynatrace problem
+      ansible.builtin.uri:
+        url: "{{ dt_tenant_url }}/api/v2/problems/{{ dt_problem_id }}/comments"
+        method: POST
+        headers:
+          Authorization: "Api-Token {{ dt_api_token }}"
+        body_format: json
+        body:
+          message: "ServiceNow {{ inc_number }} opened. Ansible Automation Platform is remediating {{ target_service }} on {{ target_host }}."
+          context: Ansible Automation Platform
+        status_code: [200, 201, 204]
+      when: dt_can_comment | bool
+      failed_when: false   # a comment failure must never block the fix
+
+    # ------------------------------------------------------- 2. diagnostics
+    - name: Capture diagnostics before changing anything
+      delegate_to: "{{ target_host }}"
+      become: true
+      ignore_unreachable: true
+      ansible.builtin.shell: |
+        echo "--- systemctl status {{ target_service }}"
+        systemctl status {{ target_service }} --no-pager --lines=0 || true
+        echo "--- last 20 journal lines"
+        journalctl -u {{ target_service }} --no-pager -n 20 || true
+        echo "--- memory (MB)"
+        free -m
+        echo "--- disk /"
+        df -h /
+      register: evidence
+      changed_when: false
+
+    - name: Work note — diagnostics
+      servicenow.itsm.incident:
+        instance: "{{ snow_instance }}"
+        number: "{{ inc_number }}"
+        other:
+          work_notes: |
+            [1/3 DIAGNOSTICS] Captured on {{ target_host }} before any change:
+
+            {{ evidence.stdout | default('Host unreachable — no diagnostics available.') }}
+
+    # ----------------------------------------------- 3. implement and verify
+    - name: Remediate and verify
+      when: not (evidence.unreachable | default(false))
+      block:
+        - name: Restart the failed service
+          delegate_to: "{{ target_host }}"
+          become: true
+          ansible.builtin.systemd:
+            name: "{{ target_service }}"
+            state: restarted
+            enabled: true
+
+        - name: Work note — implementation
+          servicenow.itsm.incident:
+            instance: "{{ snow_instance }}"
+            number: "{{ inc_number }}"
+            other:
+              work_notes: |
+                [2/3 IMPLEMENTATION] Restarted service '{{ target_service }}' on {{ target_host }}
+                via AAP job {{ awx_job_id | default('local') }}. Now verifying recovery.
+
+        - name: Verify the health endpoint really recovered
+          delegate_to: "{{ target_host }}"
+          ansible.builtin.uri:
+            url: "{{ health_url }}"
+            return_content: true
+          register: verify
+          retries: "{{ verify_retries }}"
+          delay: "{{ verify_delay }}"
+          until: verify.status == 200 and (verify.json | default({})).status | default('') == 'ok'
+
+        - name: Mark the remediation successful
+          ansible.builtin.set_fact:
+            heal_succeeded: true
+
+      rescue:
+        - name: Record the failure
+          ansible.builtin.set_fact:
+            heal_succeeded: false
+            heal_error: "{{ ansible_failed_result.msg | default('remediation failed') }}"
+
+    # --------------------------------------------- 4a. success: verify + close
+    - name: Close out a successful remediation
+      when: heal_succeeded | default(false) | bool
+      block:
+        - name: Work note — verification
+          servicenow.itsm.incident:
+            instance: "{{ snow_instance }}"
+            number: "{{ inc_number }}"
+            other:
+              work_notes: |
+                [3/3 VERIFICATION] PASSED
+                Check     : GET {{ health_url }} on {{ target_host }}
+                Result    : HTTP {{ verify.status }} after {{ verify.attempts | default(1) }} attempt(s)
+                Response  : {{ verify.json | to_json }}
+
+        - name: Resolve the incident
+          servicenow.itsm.incident:
+            instance: "{{ snow_instance }}"
+            number: "{{ inc_number }}"
+            state: resolved
+            close_code: Solved (Permanently)
+            close_notes: |
+              Resolved automatically by Ansible Automation Platform.
+              Cause   : {{ dt_problem_title }} (Dynatrace {{ dt_pid }})
+              Action  : restarted {{ target_service }} on {{ target_host }}
+              Verified: HTTP 200 with status "ok" from {{ health_url }}
+              AAP job : {{ aap_job_url }}
+              No human intervention was required.
+
+        - name: Close the incident
+          servicenow.itsm.incident:
+            instance: "{{ snow_instance }}"
+            number: "{{ inc_number }}"
+            state: closed
+            close_code: Solved (Permanently)
+            close_notes: "Closed automatically after verified recovery. See resolution notes and work notes."
+
+        - name: Comment the outcome onto the Dynatrace problem
+          ansible.builtin.uri:
+            url: "{{ dt_tenant_url }}/api/v2/problems/{{ dt_problem_id }}/comments"
+            method: POST
+            headers:
+              Authorization: "Api-Token {{ dt_api_token }}"
+            body_format: json
+            body:
+              message: "Remediation verified: {{ target_service }} healthy on {{ target_host }}. ServiceNow {{ inc_number }} closed automatically."
+              context: Ansible Automation Platform
+            status_code: [200, 201, 204]
+          when: dt_can_comment | bool
+          failed_when: false
+
+    # --------------------------------------- 4b. failure: escalate, never close
+    - name: Escalate a failed remediation
+      when: not (heal_succeeded | default(false) | bool)
+      block:
+        - name: Escalate the incident to a human
+          servicenow.itsm.incident:
+            instance: "{{ snow_instance }}"
+            number: "{{ inc_number }}"
+            impact: high
+            urgency: high
+            assignment_group: Service Desk
+            other:
+              work_notes: |
+                [3/3 VERIFICATION] FAILED — escalating to the Service Desk.
+                Error: {{ heal_error | default('target host unreachable') }}
+                AAP job: {{ aap_job_url }}
+
+        - name: Comment the escalation onto the Dynatrace problem
+          ansible.builtin.uri:
+            url: "{{ dt_tenant_url }}/api/v2/problems/{{ dt_problem_id }}/comments"
+            method: POST
+            headers:
+              Authorization: "Api-Token {{ dt_api_token }}"
+            body_format: json
+            body:
+              message: "Automated remediation FAILED. ServiceNow {{ inc_number }} escalated to the Service Desk."
+              context: Ansible Automation Platform
+            status_code: [200, 201, 204]
+          when: dt_can_comment | bool
+          failed_when: false
+
+        - name: Fail the job so the failure is visible in AAP
+          ansible.builtin.fail:
+            msg: "{{ target_service }} did not recover. {{ inc_number }} escalated."
+
+    - name: Summary
+      ansible.builtin.debug:
+        msg:
+          - "Dynatrace : {{ dt_pid }} — {{ dt_problem_title }}"
+          - "ServiceNow: {{ inc_number }} — diagnostics, implementation, verification noted; closed"
+          - "Fix       : {{ target_service }} restarted on {{ target_host }} and verified"

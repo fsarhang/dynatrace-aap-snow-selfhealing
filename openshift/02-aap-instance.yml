@@ -1,0 +1,18 @@
+---
+# One AAP instance: platform gateway + automation controller + Event-Driven Ansible.
+# Automation hub and Lightspeed are disabled — the demo doesn't need them and the
+# Open Environment cluster has limited capacity.
+apiVersion: aap.ansible.com/v1alpha1
+kind: AnsibleAutomationPlatform
+metadata:
+  name: aap
+  namespace: aap
+spec:
+  controller:
+    disabled: false
+  eda:
+    disabled: false
+  hub:
+    disabled: true
+  lightspeed:
+    disabled: true

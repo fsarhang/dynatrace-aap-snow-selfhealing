@@ -1,0 +1,55 @@
+---
+# Event-Driven Ansible rulebook: Dynatrace problem -> self-heal job template.
+#
+# In AAP the webhook source below is swapped for an Event Stream when you attach
+# one to the rulebook activation, so Dynatrace posts to the event stream URL and
+# no extra port or route is needed. The source definition stays for local
+# testing with `ansible-rulebook`.
+#
+# Expected event body: dynatrace/problem-notification-payload.json
+- name: Dynatrace self-healing
+  hosts: all
+  sources:
+    - name: dynatrace_problems
+      ansible.eda.webhook:
+        host: 0.0.0.0
+        port: 5000
+
+  rules:
+    # Guardrails live in the condition: only OPEN availability problems on
+    # entities Dynatrace has tagged as approved for automation.
+    - name: Remediate an availability problem
+      condition: >-
+        event.payload.state == "OPEN"
+        and event.payload.severity == "AVAILABILITY"
+        and event.payload.tags is search("automation:selfheal", ignorecase=true)
+      # Storm control: one remediation per Dynatrace problem per 10 minutes,
+      # however many notifications arrive for it.
+      throttle:
+        once_within: 10 minutes
+        group_by_attributes:
+          - event.payload.problem_id
+      action:
+        run_job_template:
+          name: "Self-Heal :: Service Recovery"
+          organization: Default
+          job_args:
+            extra_vars:
+              dt_problem_id: "{{ event.payload.problem_id }}"
+              dt_pid: "{{ event.payload.pid }}"
+              dt_problem_title: "{{ event.payload.title }}"
+              dt_problem_severity: "{{ event.payload.severity }}"
+              dt_problem_impact: "{{ event.payload.impact }}"
+              dt_problem_state: "{{ event.payload.state }}"
+              dt_impacted_entity: "{{ event.payload.impacted_entity }}"
+              dt_problem_url: "{{ event.payload.url }}"
+              # Demo shortcut: one known host. In production, map the Dynatrace
+              # entity to an inventory host (host tag or Entities API lookup).
+              target_host: app01
+              target_service: demo-api
+
+    - name: Record problem resolution
+      condition: event.payload.state == "RESOLVED"
+      action:
+        debug:
+          msg: "Dynatrace closed problem {{ event.payload.pid }} — no action needed."

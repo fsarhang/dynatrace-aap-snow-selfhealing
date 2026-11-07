@@ -1,0 +1,9 @@
+---
+# Automation controller installs these automatically on every project sync
+# (it reads collections/requirements.yml at the repository root).
+# Laptop: ansible-galaxy collection install -r collections/requirements.yml
+collections:
+  - name: servicenow.itsm
+    version: ">=2.6.0"
+  - name: ansible.posix
+  - name: community.general

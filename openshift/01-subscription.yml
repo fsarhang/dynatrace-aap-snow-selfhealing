@@ -1,0 +1,14 @@
+---
+# scripts/install-aap-operator.sh substitutes CHANNEL with the newest
+# namespace-scoped stable-2.x channel available on your cluster.
+apiVersion: operators.coreos.com/v1alpha1
+kind: Subscription
+metadata:
+  name: ansible-automation-platform-operator
+  namespace: aap
+spec:
+  name: ansible-automation-platform-operator
+  source: redhat-operators
+  sourceNamespace: openshift-marketplace
+  channel: CHANNEL
+  installPlanApproval: Automatic

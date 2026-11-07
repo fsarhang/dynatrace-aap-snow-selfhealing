@@ -1,0 +1,10 @@
+---
+# scripts/create-demo-vm.sh writes inventory/hosts.yml for you (laptop use,
+# public IP). In AAP, create host app01 with the PRIVATE IP instead.
+all:
+  children:
+    demo_app:
+      hosts:
+        app01:
+          ansible_host: 203.0.113.20
+          ansible_user: ec2-user
