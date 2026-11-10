@@ -18,7 +18,7 @@ PID_FAKE="P-$(date +%y%m%d%H%M)"
 body=$(cat <<JSON
 {"extra_vars": {
   "dt_pid": "${PID_FAKE}",
-  "dt_problem_title": "Payments API unavailable",
+  "dt_problem_title": "Client Portal unavailable",
   "dt_problem_severity": "AVAILABILITY",
   "dt_problem_state": "OPEN",
   "dt_impacted_entity": "app01",

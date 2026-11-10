@@ -31,7 +31,7 @@ payload=$(cat <<JSON
 {
   "problem_id": "${PROBLEM_ID}",
   "pid": "${PID_FAKE}",
-  "title": "Payments API unavailable",
+  "title": "Client Portal unavailable",
   "state": "${STATE}",
   "severity": "AVAILABILITY",
   "impact": "SERVICE",

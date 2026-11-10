@@ -64,13 +64,13 @@
                       }))
                   elif self.path == "/":
                       self._send(200, (
-                          "<html><head><title>Payments API</title>"
+                          "<html><head><title>Client Portal</title>"
                           "<meta http-equiv='refresh' content='2'>"
                           "<style>body{font-family:system-ui;background:#0b1021;color:#e6edf3;"
                           "display:flex;align-items:center;justify-content:center;height:100vh;"
                           "margin:0;flex-direction:column}h1{font-size:3rem;margin:0}"
                           ".ok{color:#3fb950}</style></head><body>"
-                          "<h1 class='ok'>&#10003; Payments API</h1>"
+                          "<h1 class='ok'>&#10003; Client Portal</h1>"
                           f"<p>demo-api {VERSION} on {socket.gethostname()} &mdash; "
                           f"up {round(time.time() - STARTED)}s</p>"
                           "</body></html>"), "text/html")
@@ -90,7 +90,7 @@
         mode: "0644"
         content: |
           [Unit]
-          Description=Demo Payments API
+          Description=Demo Client Portal
           After=network-online.target
 
           [Service]
