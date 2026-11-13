@@ -214,7 +214,15 @@
             number: "{{ inc_number }}"
             state: closed
             close_code: Solution provided
-            close_notes: "Closed automatically after verified recovery. See resolution notes and work notes."
+            # Same text as the Resolve step: close_notes is one field, so a shorter
+            # text here would overwrite the detailed resolution notes.
+            close_notes: |
+              Resolved automatically by Ansible Automation Platform.
+              Cause   : {{ dt_problem_title }} (Dynatrace {{ dt_pid }})
+              Action  : restarted {{ target_service }} on {{ target_host }}
+              Verified: HTTP 200 with status "ok" from {{ health_url }}
+              AAP job : {{ aap_job_url }}
+              No human intervention was required.
 
         - name: Comment the outcome onto the Dynatrace problem
           ansible.builtin.uri:
