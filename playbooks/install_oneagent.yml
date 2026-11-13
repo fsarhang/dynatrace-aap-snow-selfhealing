@@ -31,13 +31,13 @@
         fail_msg: "Attach the Dynatrace API credential, or pass -e dt_tenant_url=... -e dt_paas_token=..."
 
   tasks:
+    # Checks for the service, not the /opt/dynatrace/oneagent folder: an aborted
+    # install leaves the folder behind without a working agent.
     - name: Check whether OneAgent is already installed
-      ansible.builtin.stat:
-        path: /opt/dynatrace/oneagent
-      register: oneagent_dir
+      ansible.builtin.service_facts:
 
     - name: Install OneAgent
-      when: not oneagent_dir.stat.exists
+      when: "'oneagent.service' not in ansible_facts.services"
       block:
         - name: Download the OneAgent installer
           ansible.builtin.get_url:
@@ -54,9 +54,6 @@
               --set-monitoring-mode=fullstack
               --set-app-log-content-access=true
               --set-host-group={{ dt_host_group }}
-              --set-infra-only=false
-          args:
-            creates: /opt/dynatrace/oneagent
 
         - name: Remove the installer (it contains a token)
           ansible.builtin.file:
