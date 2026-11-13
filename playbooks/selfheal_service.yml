@@ -15,10 +15,11 @@
 #   If verification fails: escalated to the Service Desk, never closed.
 # ============================================================================
 - name: Closed-loop remediation for a Dynatrace problem
-  hosts: localhost
+  # Runs on the target server itself. The ServiceNow and Dynatrace API calls are
+  # delegated to localhost (the execution pod). Running the play on localhost
+  # instead would make AAP count "localhost" as a second managed host.
+  hosts: "{{ target_host | default('app01') }}"
   gather_facts: false
-  # No `connection: local` here — delegated tasks would inherit it and run on
-  # the execution pod instead of the target host.
 
   vars:
     # ---- Supplied by the EDA rulebook (defaults allow a manual run) ----
@@ -69,6 +70,7 @@
 
     # ------------------------------------------------- 1. open the incident
     - name: Open a ServiceNow incident
+      delegate_to: localhost
       servicenow.itsm.incident:
         instance: "{{ snow_instance }}"
         state: in_progress
@@ -98,6 +100,7 @@
         inc_number: "{{ inc.record.number }}"
 
     - name: Comment the incident number onto the Dynatrace problem
+      delegate_to: localhost
       ansible.builtin.uri:
         url: "{{ dt_tenant_url }}/api/v2/problems/{{ dt_problem_id }}/comments"
         method: POST
@@ -113,7 +116,6 @@
 
     # ------------------------------------------------------- 2. diagnostics
     - name: Capture diagnostics before changing anything
-      delegate_to: "{{ target_host }}"
       become: true
       ignore_unreachable: true
       ansible.builtin.shell: |
@@ -129,6 +131,7 @@
       changed_when: false
 
     - name: Work note — diagnostics
+      delegate_to: localhost
       servicenow.itsm.incident:
         instance: "{{ snow_instance }}"
         number: "{{ inc_number }}"
@@ -143,7 +146,6 @@
       when: not (evidence.unreachable | default(false))
       block:
         - name: Restart the failed service
-          delegate_to: "{{ target_host }}"
           become: true
           ansible.builtin.systemd:
             name: "{{ target_service }}"
@@ -151,6 +153,7 @@
             enabled: true
 
         - name: Work note — implementation
+          delegate_to: localhost
           servicenow.itsm.incident:
             instance: "{{ snow_instance }}"
             number: "{{ inc_number }}"
@@ -160,7 +163,6 @@
                 via AAP job {{ awx_job_id | default('local') }}. Now verifying recovery.
 
         - name: Verify the health endpoint really recovered
-          delegate_to: "{{ target_host }}"
           ansible.builtin.uri:
             url: "{{ health_url }}"
             return_content: true
@@ -184,6 +186,7 @@
       when: heal_succeeded | default(false) | bool
       block:
         - name: Work note — verification
+          delegate_to: localhost
           servicenow.itsm.incident:
             instance: "{{ snow_instance }}"
             number: "{{ inc_number }}"
@@ -195,6 +198,7 @@
                 Response  : {{ verify.json | to_json }}
 
         - name: Resolve the incident
+          delegate_to: localhost
           servicenow.itsm.incident:
             instance: "{{ snow_instance }}"
             number: "{{ inc_number }}"
@@ -209,6 +213,7 @@
               No human intervention was required.
 
         - name: Close the incident
+          delegate_to: localhost
           servicenow.itsm.incident:
             instance: "{{ snow_instance }}"
             number: "{{ inc_number }}"
@@ -225,6 +230,7 @@
               No human intervention was required.
 
         - name: Comment the outcome onto the Dynatrace problem
+          delegate_to: localhost
           ansible.builtin.uri:
             url: "{{ dt_tenant_url }}/api/v2/problems/{{ dt_problem_id }}/comments"
             method: POST
@@ -243,6 +249,7 @@
       when: not (heal_succeeded | default(false) | bool)
       block:
         - name: Escalate the incident to a human
+          delegate_to: localhost
           servicenow.itsm.incident:
             instance: "{{ snow_instance }}"
             number: "{{ inc_number }}"
@@ -256,6 +263,7 @@
                 AAP job: {{ aap_job_url }}
 
         - name: Comment the escalation onto the Dynatrace problem
+          delegate_to: localhost
           ansible.builtin.uri:
             url: "{{ dt_tenant_url }}/api/v2/problems/{{ dt_problem_id }}/comments"
             method: POST

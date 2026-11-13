@@ -15,13 +15,20 @@
 #   # guardrail test: entity not tagged for automation -> rule does NOT fire
 #   TAGS="env:demo" ./scripts/send-fake-dynatrace-problem.sh
 #
-# Needs EDA_EVENT_STREAM_URL, EDA_EVENT_STREAM_HEADER, EDA_EVENT_STREAM_TOKEN.
+# Needs EDA_EVENT_STREAM_URL plus one way to log in:
+#   EDA_EVENT_STREAM_USERNAME + EDA_EVENT_STREAM_PASSWORD  (Dynatrace Event Stream / Basic)
+#   or EDA_EVENT_STREAM_TOKEN (+ EDA_EVENT_STREAM_HEADER)   (Token Event Stream)
 
 set -euo pipefail
 
 : "${EDA_EVENT_STREAM_URL:?set EDA_EVENT_STREAM_URL (copy it from the event stream page in AAP)}"
-: "${EDA_EVENT_STREAM_TOKEN:?set EDA_EVENT_STREAM_TOKEN}"
-EDA_EVENT_STREAM_HEADER="${EDA_EVENT_STREAM_HEADER:-X-Dynatrace-Token}"
+if [[ -n "${EDA_EVENT_STREAM_USERNAME:-}" && -n "${EDA_EVENT_STREAM_PASSWORD:-}" ]]; then
+  auth_header="Authorization: Basic $(printf %s "${EDA_EVENT_STREAM_USERNAME}:${EDA_EVENT_STREAM_PASSWORD}" | base64)"
+elif [[ -n "${EDA_EVENT_STREAM_TOKEN:-}" ]]; then
+  auth_header="${EDA_EVENT_STREAM_HEADER:-X-Dynatrace-Token}: ${EDA_EVENT_STREAM_TOKEN}"
+else
+  echo "!! Set EDA_EVENT_STREAM_USERNAME and EDA_EVENT_STREAM_PASSWORD (or EDA_EVENT_STREAM_TOKEN) in demo.env" >&2; exit 1
+fi
 STATE="${STATE:-OPEN}"
 PID_FAKE="${PID_FAKE:-P-$(date +%y%m%d%H%M)}"
 PROBLEM_ID="${PROBLEM_ID:--1234567890123456789_$(date +%s)000V2}"
@@ -45,7 +52,7 @@ JSON
 echo "==> Sending fake ${STATE} problem ${PID_FAKE} to EDA"
 code=$(curl -sk -o /tmp/eda-response.txt -w '%{http_code}' -X POST \
   -H "Content-Type: application/json" \
-  -H "${EDA_EVENT_STREAM_HEADER}: ${EDA_EVENT_STREAM_TOKEN}" \
+  -H "${auth_header}" \
   -d "${payload}" "${EDA_EVENT_STREAM_URL}")
 
 if [[ "${code}" =~ ^20[0-9]$ ]]; then
@@ -55,7 +62,7 @@ if [[ "${code}" =~ ^20[0-9]$ ]]; then
 else
   echo "!! EDA returned HTTP ${code}:" >&2; cat /tmp/eda-response.txt >&2; echo >&2
   case "${code}" in
-    401|403) echo "   -> Header name or token doesn't match the event stream credential." >&2 ;;
+    401|403) echo "   -> Username/password (or token) doesn't match the event stream credential." >&2 ;;
     404)     echo "   -> Wrong URL, or the event stream isn't attached to a running activation." >&2 ;;
   esac
   exit 1
