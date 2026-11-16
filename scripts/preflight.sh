@@ -1,7 +1,6 @@
 #!/usr/bin/env bash
 #
-# Run this 30 minutes before you present. Every item that can silently rot
-# between rehearsals is checked here.
+# Checks that every component of the demo is reachable and ready before a run.
 #
 #   source demo.env && source demo-vm.env
 #   ./scripts/preflight.sh

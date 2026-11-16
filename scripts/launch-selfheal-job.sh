@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 #
 # Launches the self-heal job template directly through the controller API,
-# bypassing EDA. Use it to test AAP -> ServiceNow before EDA exists, and as the
-# on-stage fallback if the event path misbehaves.
+# bypassing EDA. Use it to test AAP -> ServiceNow before EDA exists, and as a
+# fallback if the event path misbehaves.
 #
 #   source demo.env
 #   FOLLOW=1 ./scripts/launch-selfheal-job.sh

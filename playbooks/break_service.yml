@@ -1,13 +1,12 @@
 ---
-# The "chaos" step. Run it live, on stage, as the AAP job template
+# The "chaos" step: deliberately breaks the demo workload. Run it as the AAP job template
 # "Chaos :: Inject fault" (survey: scenario = service | disk), or from a laptop:
 #
 #   ansible-playbook playbooks/break_service.yml
 #   ansible-playbook playbooks/break_service.yml -e scenario=disk
 #
-# Keep it a playbook rather than a raw `systemctl stop` — it reads as deliberate
-# fault injection rather than sabotage, and the output gives you something to
-# narrate while Dynatrace catches up.
+# A playbook rather than a raw `systemctl stop`, so the fault is repeatable and
+# recorded in AAP like any other job.
 - name: Inject a fault into the demo workload
   hosts: demo_app
   become: true

@@ -1,7 +1,7 @@
 ---
 # ============================================================================
-# The centrepiece. Event-Driven Ansible launches this when Dynatrace reports a
-# problem, and it is the playbook you put on screen — so it is written to be read.
+# The main remediation playbook. Event-Driven Ansible launches it when Dynatrace
+# reports a problem.
 #
 # Job template "Self-Heal :: Service Recovery" (Prompt on launch: Variables)
 # Credentials: demo-app-ssh, ServiceNow PDI, Dynatrace API

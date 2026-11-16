@@ -1,5 +1,5 @@
 ---
-# Builds the workload you are going to break on stage:
+# Builds the demo workload that the self-healing flow repairs:
 #   nginx (:80)  ->  demo-api (127.0.0.1:8080, systemd)
 #
 # Run as the AAP job template "Demo :: Prepare app", or from your laptop:
