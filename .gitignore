@@ -1,4 +1,4 @@
-# Secrets and local state — never commit
+# Local settings and secrets
 demo.env
 demo-vm.env
 *.pem
@@ -6,14 +6,10 @@ demo-vm.env
 id_*
 kubeconfig*
 inventory/hosts.yml
+
+# Ansible
 collections/ansible_collections/
 *.retry
-
-# Build guides and presentation notes stay on the laptop only
-docs/
-README.md
-**/README.md
-!/README.md
 
 # Downloads
 *manifest*.zip
